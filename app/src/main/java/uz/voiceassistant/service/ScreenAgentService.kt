@@ -26,8 +26,9 @@ import org.json.JSONObject
 import uz.voiceassistant.VoiceAssistantApp
 import uz.voiceassistant.agent.AgentStatus
 import uz.voiceassistant.agent.AgentStepAction
-import uz.voiceassistant.agent.GeminiVisionClient
+import uz.voiceassistant.agent.UniversalAiClient
 import uz.voiceassistant.agent.UiElementNode
+import uz.voiceassistant.data.AiProvider
 import uz.voiceassistant.speech.SpeechManager
 import uz.voiceassistant.speech.TtsManager
 import java.io.ByteArrayOutputStream
@@ -41,7 +42,7 @@ class ScreenAgentService : AccessibilityService() {
     private var agentJob: Job? = null
 
     private lateinit var ttsManager: TtsManager
-    private lateinit var geminiClient: GeminiVisionClient
+    private lateinit var aiClient: UniversalAiClient
     private val screenshotExecutor = Executors.newSingleThreadExecutor()
 
     companion object {
@@ -74,9 +75,17 @@ class ScreenAgentService : AccessibilityService() {
         ttsManager = TtsManager(this)
         ttsManager.setFallbackLanguage(app.settingsManager.fallbackLanguage)
 
-        geminiClient = GeminiVisionClient(
-            apiKeyProvider = { app.settingsManager.geminiApiKey },
-            modelProvider = { app.settingsManager.geminiModel }
+        aiClient = UniversalAiClient(
+            providerProvider = { app.settingsManager.aiProvider },
+            apiKeyProvider = { app.settingsManager.apiKey },
+            modelProvider = {
+                when (app.settingsManager.aiProvider) {
+                    AiProvider.GEMINI -> app.settingsManager.geminiModel
+                    AiProvider.OPENAI -> app.settingsManager.customModel.ifBlank { "gpt-4o-mini" }
+                    AiProvider.CUSTOM -> app.settingsManager.customModel
+                }
+            },
+            customEndpointProvider = { app.settingsManager.customEndpoint }
         )
     }
 
@@ -117,8 +126,8 @@ class ScreenAgentService : AccessibilityService() {
             val nodesJson = buildCompactNodeTreeJson(interactiveNodes)
             val screenshotBytes = captureScreenshotJpeg()
 
-            // 2. Query Gemini Vision
-            val decisionResult = geminiClient.decideNextAction(
+            // 2. Query AI Vision
+            val decisionResult = aiClient.decideNextAction(
                 userCommand = userCommand,
                 stepNumber = currentStep,
                 screenshotBytes = screenshotBytes,
@@ -128,7 +137,7 @@ class ScreenAgentService : AccessibilityService() {
 
             if (decisionResult.isFailure) {
                 val errorMsg = decisionResult.exceptionOrNull()?.message ?: "Xatolik yuz berdi"
-                Log.e(tag, "Gemini call failed: $errorMsg")
+                Log.e(tag, "AI call failed: $errorMsg")
                 ttsManager.speak("Kechirasiz, sun'iy intellekt bilan bog'lanishda xatolik yuz berdi: $errorMsg")
                 break
             }

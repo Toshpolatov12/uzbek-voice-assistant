@@ -12,10 +12,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,29 +24,33 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -56,17 +58,19 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -74,12 +78,16 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
+import uz.voiceassistant.BuildConfig
 import uz.voiceassistant.VoiceAssistantApp
+import uz.voiceassistant.data.AiProvider
 import uz.voiceassistant.service.ScreenAgentService
 import uz.voiceassistant.service.WakeWordService
 import uz.voiceassistant.ui.theme.UzbekVoiceAssistantTheme
+import uz.voiceassistant.updater.AppUpdater
+import uz.voiceassistant.updater.UpdateInfo
 
 class MainActivity : ComponentActivity() {
 
@@ -148,9 +156,19 @@ fun MainSettingsScreen(
     onTestAssistant: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    var apiKey by remember { mutableStateOf(settingsManager.geminiApiKey) }
+    var apiKey by remember { mutableStateOf(settingsManager.apiKey) }
+    var selectedProvider by remember { mutableStateOf(settingsManager.aiProvider) }
+    var customEndpoint by remember { mutableStateOf(settingsManager.customEndpoint) }
+    var modelName by remember {
+        mutableStateOf(
+            if (settingsManager.aiProvider == AiProvider.GEMINI) settingsManager.geminiModel
+            else settingsManager.customModel
+        )
+    }
+
     var isKeyVisible by remember { mutableStateOf(false) }
     var wakeWordEnabled by remember { mutableStateOf(settingsManager.isWakeWordEnabled) }
     var fallbackLang by remember { mutableStateOf(settingsManager.fallbackLanguage) }
@@ -159,16 +177,82 @@ fun MainSettingsScreen(
     }
     var isAccessibilityActive by remember { mutableStateOf(ScreenAgentService.isEnabled()) }
 
+    // Auto-Update States
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableFloatStateOf(0f) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         hasAllPermissions = results.values.all { it }
     }
 
-    // Periodically update service and permission statuses
+    // Auto-check for updates on launch
     LaunchedEffect(Unit) {
         isAccessibilityActive = ScreenAgentService.isEnabled()
         hasAllPermissions = (context as? MainActivity)?.hasPermissions() ?: false
+
+        AppUpdater.checkForUpdate(BuildConfig.VERSION_NAME).onSuccess { info ->
+            if (info.isNewer) {
+                availableUpdate = info
+                showUpdateDialog = true
+            }
+        }
+    }
+
+    // Update Available Dialog
+    if (showUpdateDialog && availableUpdate != null) {
+        val update = availableUpdate!!
+        AlertDialog(
+            onDismissRequest = { if (!isDownloadingUpdate) showUpdateDialog = false },
+            icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Yangi versiya mavjud: v${update.versionName}") },
+            text = {
+                Column {
+                    Text("Ilovaga yangi imkoniyatlar va tuzatishlar kiritildi:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(update.releaseNotes, style = MaterialTheme.typography.bodySmall)
+                    if (isDownloadingUpdate) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Yuklanmoqda: ${(downloadProgress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = downloadProgress,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (!isDownloadingUpdate) {
+                    Button(
+                        onClick = {
+                            isDownloadingUpdate = true
+                            scope.launch {
+                                AppUpdater.downloadAndInstall(context, update.downloadUrl) { progress ->
+                                    downloadProgress = progress
+                                }.onFailure { e ->
+                                    isDownloadingUpdate = false
+                                    Toast.makeText(context, "Yuklab olishda xatolik: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Yangilash")
+                    }
+                }
+            },
+            dismissButton = {
+                if (!isDownloadingUpdate) {
+                    TextButton(onClick = { showUpdateDialog = false }) {
+                        Text("Keyinroq")
+                    }
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -235,6 +319,177 @@ fun MainSettingsScreen(
                         Icon(Icons.Default.Mic, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Ovozli Yordamchini Ochish")
+                    }
+                }
+            }
+
+            // In-App Auto-Update Card (Play Market-like OTA updates)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Ilovani Yangilash (OTA)", fontWeight = FontWeight.Bold)
+                        }
+                        Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Ilovani o'chirmasdan, sozlamalarni buzmasdan, to'g'ridan-to'g'ri bir bosishda eng so'nggi versiyaga yangilang.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            isCheckingUpdate = true
+                            scope.launch {
+                                AppUpdater.checkForUpdate(BuildConfig.VERSION_NAME)
+                                    .onSuccess { info ->
+                                        isCheckingUpdate = false
+                                        if (info.isNewer) {
+                                            availableUpdate = info
+                                            showUpdateDialog = true
+                                        } else {
+                                            Toast.makeText(context, "Sizda eng so'nggi versiya o'rnatilgan (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    .onFailure { e ->
+                                        isCheckingUpdate = false
+                                        Toast.makeText(context, "Xatolik: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                            }
+                        },
+                        enabled = !isCheckingUpdate,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Tekshirilmoqda...")
+                        } else {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Yangilanishlarni tekshirish")
+                        }
+                    }
+                }
+            }
+
+            // Universal Multi-Provider AI Engine Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sun'iy Intellekt (AI) Tizimi", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Har qanday AI (Google Gemini, OpenAI ChatGPT, OpenRouter, Groq, DeepSeek) API kalitini kiritishingiz mumkin.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("AI Xizmatini tanlang:", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+
+                    // Provider selection
+                    AiProvider.values().forEach { provider ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedProvider = provider
+                                    modelName = when (provider) {
+                                        AiProvider.GEMINI -> settingsManager.geminiModel
+                                        AiProvider.OPENAI -> "gpt-4o-mini"
+                                        AiProvider.CUSTOM -> settingsManager.customModel
+                                    }
+                                }
+                        ) {
+                            RadioButton(
+                                selected = (selectedProvider == provider),
+                                onClick = {
+                                    selectedProvider = provider
+                                    modelName = when (provider) {
+                                        AiProvider.GEMINI -> settingsManager.geminiModel
+                                        AiProvider.OPENAI -> "gpt-4o-mini"
+                                        AiProvider.CUSTOM -> settingsManager.customModel
+                                    }
+                                }
+                            )
+                            Text(provider.displayName, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    // Custom endpoint field if custom provider
+                    if (selectedProvider == AiProvider.CUSTOM) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = customEndpoint,
+                            onValueChange = { customEndpoint = it },
+                            label = { Text("API Endpoint URL") },
+                            placeholder = { Text("https://openrouter.ai/api/v1/chat/completions") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = modelName,
+                        onValueChange = { modelName = it },
+                        label = { Text("Model Nomi") },
+                        placeholder = { Text(if (selectedProvider == AiProvider.GEMINI) "gemini-3.5-flash" else "gpt-4o-mini") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = { apiKey = it },
+                        label = { Text("API Kalit (har qanday kalit qabul qilinadi)") },
+                        placeholder = { Text("Kalitni bu yerga joylang...") },
+                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Kalitni ko'rsatish"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            settingsManager.aiProvider = selectedProvider
+                            settingsManager.apiKey = apiKey
+                            if (selectedProvider == AiProvider.GEMINI) {
+                                settingsManager.geminiModel = modelName
+                            } else {
+                                settingsManager.customModel = modelName
+                                settingsManager.customEndpoint = customEndpoint
+                            }
+                            Toast.makeText(context, "AI sozlamalari va kalit saqlandi!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Saqlash")
                     }
                 }
             }
@@ -363,54 +618,6 @@ fun MainSettingsScreen(
                 }
             }
 
-            // Gemini API Key Input Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("4. Gemini API Kaliti (AI Vision)", fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Universal ekran boshqaruvchisi uchun Google AI Studio (aistudio.google.com) dan bepul olingan API kalitni kiriting. Kalit faqat qurilmangizda xavfsiz (EncryptedSharedPreferences) saqlanadi.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = { apiKey = it },
-                        label = { Text("Gemini API Kaliti") },
-                        placeholder = { Text("AIzaSy...") },
-                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        trailingIcon = {
-                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
-                                Icon(
-                                    imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = "Kalitni ko'rsatish"
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            settingsManager.geminiApiKey = apiKey
-                            Toast.makeText(context, "API Kaliti xavfsiz saqlandi!", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text("Saqlash")
-                    }
-                }
-            }
-
             // Hands-free Wake Word Card (openWakeWord)
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -455,7 +662,7 @@ fun MainSettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Diqqat: Android tizimi mikrofon fonda ishlaganda doimiy bildirishnoma (notification) ko'rsatishni majburiy talab qiladi (OS privacy requirement).",
+                            text = "Diqqat: Android tizimi mikrofon fonda ishlaganda doimiy bildirishnoma ko'rsatishni majburiy talab qiladi (OS privacy requirement).",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
