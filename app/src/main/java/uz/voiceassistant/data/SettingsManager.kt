@@ -42,7 +42,7 @@ class SettingsManager(context: Context) {
         private const val KEY_GEMINI_MODEL = "gemini_model"
         private const val KEY_CONFIRM_SENSITIVE = "confirm_sensitive"
 
-        const val DEFAULT_FALLBACK_LANG = "ru-RU"
+        const val DEFAULT_FALLBACK_LANG = "en-US"
         const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
         const val DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
         const val DEFAULT_CUSTOM_ENDPOINT = "https://api.openai.com/v1/chat/completions"

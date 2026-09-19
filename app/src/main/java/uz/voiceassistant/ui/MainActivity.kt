@@ -684,37 +684,68 @@ fun MainSettingsScreen(
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Agar qurilmangizda O'zbek tili (uz-UZ) ovoz paketi o'rnatilmagan bo'lsa, qaysi til zaxira sifatida ishlatilsin?",
+                        text = "Agar qurilmangizda O'zbek tili (uz-UZ) ovoz paketi o'rnatilmagan yoki ishlamasa, qaysi til zaxira sifatida ishlatilsin?",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = (fallbackLang == "ru-RU"),
-                            onClick = {
-                                fallbackLang = "ru-RU"
-                                settingsManager.fallbackLanguage = "ru-RU"
-                            }
-                        )
-                        Text("Rus tili (ru-RU)", modifier = Modifier.clickable {
-                            fallbackLang = "ru-RU"
-                            settingsManager.fallbackLanguage = "ru-RU"
-                        })
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    fallbackLang = "en-US"
+                                    settingsManager.fallbackLanguage = "en-US"
+                                }
+                        ) {
+                            RadioButton(
+                                selected = (fallbackLang == "en-US"),
+                                onClick = {
+                                    fallbackLang = "en-US"
+                                    settingsManager.fallbackLanguage = "en-US"
+                                }
+                            )
+                            Text("Ingliz tili (en-US) — Tavsiya etiladi", style = MaterialTheme.typography.bodyMedium)
+                        }
 
-                        Spacer(modifier = Modifier.width(20.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    fallbackLang = "ru-RU"
+                                    settingsManager.fallbackLanguage = "ru-RU"
+                                }
+                        ) {
+                            RadioButton(
+                                selected = (fallbackLang == "ru-RU"),
+                                onClick = {
+                                    fallbackLang = "ru-RU"
+                                    settingsManager.fallbackLanguage = "ru-RU"
+                                }
+                            )
+                            Text("Rus tili (ru-RU)", style = MaterialTheme.typography.bodyMedium)
+                        }
 
-                        RadioButton(
-                            selected = (fallbackLang == "tr-TR"),
-                            onClick = {
-                                fallbackLang = "tr-TR"
-                                settingsManager.fallbackLanguage = "tr-TR"
-                            }
-                        )
-                        Text("Turk tili (tr-TR)", modifier = Modifier.clickable {
-                            fallbackLang = "tr-TR"
-                            settingsManager.fallbackLanguage = "tr-TR"
-                        })
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    fallbackLang = "tr-TR"
+                                    settingsManager.fallbackLanguage = "tr-TR"
+                                }
+                        ) {
+                            RadioButton(
+                                selected = (fallbackLang == "tr-TR"),
+                                onClick = {
+                                    fallbackLang = "tr-TR"
+                                    settingsManager.fallbackLanguage = "tr-TR"
+                                }
+                            )
+                            Text("Turk tili (tr-TR)", style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             }

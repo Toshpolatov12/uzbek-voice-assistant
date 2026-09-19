@@ -10,7 +10,7 @@ import android.util.Log
 
 class SpeechManager(
     private val context: Context,
-    private val fallbackLanguage: String = "ru-RU"
+    private val fallbackLanguage: String = "en-US"
 ) {
     private val tag = "SpeechManager"
     private var speechRecognizer: SpeechRecognizer? = null

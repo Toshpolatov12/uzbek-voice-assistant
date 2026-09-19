@@ -16,7 +16,7 @@ class TtsManager(
     private var tts: TextToSpeech? = null
     private var isInitialized = false
     private var isUsingFallback = false
-    private var currentFallbackLocale = Locale("ru", "RU")
+    private var currentFallbackLocale = Locale.US
 
     var onWarningListener: ((String) -> Unit)? = null
 
@@ -34,9 +34,9 @@ class TtsManager(
                 isUsingFallback = true
                 val fallbackResult = tts?.setLanguage(currentFallbackLocale)
                 if (fallbackResult == TextToSpeech.LANG_MISSING_DATA || fallbackResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    tts?.language = Locale.ENGLISH
+                    tts?.language = Locale.US
                 }
-                onWarningListener?.invoke("Qurilmada O'zbek tili ovoz paketi (TTS) topilmadi. Zaxira tiliga o'tildi.")
+                onWarningListener?.invoke("Qurilmada O'zbek tili ovoz paketi (TTS) topilmadi. Zaxira tiliga (${currentFallbackLocale.displayLanguage}) o'tildi.")
             } else {
                 isUsingFallback = false
             }
@@ -54,8 +54,10 @@ class TtsManager(
 
     fun setFallbackLanguage(localeCode: String) {
         currentFallbackLocale = when (localeCode) {
-            "tr-TR" -> Locale("tr", "TR")
-            else -> Locale("ru", "RU")
+            "en-US", "en" -> Locale.US
+            "ru-RU", "ru" -> Locale("ru", "RU")
+            "tr-TR", "tr" -> Locale("tr", "TR")
+            else -> Locale.US
         }
         if (isUsingFallback && isInitialized) {
             tts?.setLanguage(currentFallbackLocale)
