@@ -145,11 +145,19 @@ class AssistantVoiceInteractionSession(context: Context) : VoiceInteractionSessi
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
-        statusTextView?.text = "Eshitmoqdaman... Gapiring"
-        recognizedTextView?.text = ""
-        listeningProgressBar?.visibility = View.VISIBLE
-
-        startListening()
+        try {
+            val intent = Intent(context, AssistantSessionActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(AssistantSessionActivity.EXTRA_AUTO_START_LISTENING, true)
+            }
+            startAssistantActivity(intent)
+            hide()
+        } catch (e: Exception) {
+            statusTextView?.text = "Eshitmoqdaman... Gapiring"
+            recognizedTextView?.text = ""
+            listeningProgressBar?.visibility = View.VISIBLE
+            startListening()
+        }
     }
 
     private fun startListening() {
