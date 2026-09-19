@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -83,10 +84,9 @@ class AssistantSessionActivity : ComponentActivity() {
                     speechManager?.startListening()
                 }
 
-                // Initial start
-                remember {
+                // Initial start after composition settles and activity is active
+                LaunchedEffect(Unit) {
                     startListening()
-                    true
                 }
 
                 VoiceAssistantOverlay(
@@ -104,6 +104,15 @@ class AssistantSessionActivity : ComponentActivity() {
                             isListening = false
                         } else {
                             startListening()
+                        }
+                    },
+                    onTextSubmit = { typedCommand ->
+                        speechManager?.stopListening()
+                        isListening = false
+                        recognizedText = typedCommand
+                        statusText = "Buyruq bajarilmoqda..."
+                        handleCommand(typedCommand) { feedback ->
+                            statusText = feedback
                         }
                     }
                 )

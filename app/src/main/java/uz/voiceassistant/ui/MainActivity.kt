@@ -52,10 +52,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -183,6 +185,8 @@ fun MainSettingsScreen(
     var showUpdateDialog by remember { mutableStateOf(false) }
     var isDownloadingUpdate by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(0f) }
+    var testCommandText by remember { mutableStateOf("") }
+    var testCommandResult by remember { mutableStateOf("") }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -228,20 +232,33 @@ fun MainSettingsScreen(
             },
             confirmButton = {
                 if (!isDownloadingUpdate) {
-                    Button(
-                        onClick = {
-                            isDownloadingUpdate = true
-                            scope.launch {
-                                AppUpdater.downloadAndInstall(context, update.downloadUrl) { progress ->
-                                    downloadProgress = progress
-                                }.onFailure { e ->
-                                    isDownloadingUpdate = false
-                                    Toast.makeText(context, "Yuklab olishda xatolik: ${e.message}", Toast.LENGTH_LONG).show()
+                    Column(horizontalAlignment = Alignment.End) {
+                        Row {
+                            OutlinedButton(
+                                onClick = {
+                                    AppUpdater.openInBrowser(context, update.downloadUrl)
                                 }
+                            ) {
+                                Text("Brauzerda yuklash")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    isDownloadingUpdate = true
+                                    scope.launch {
+                                        AppUpdater.downloadAndInstall(context, update.downloadUrl) { progress ->
+                                            downloadProgress = progress
+                                        }.onFailure { e ->
+                                            isDownloadingUpdate = false
+                                            Toast.makeText(context, "Ilova ichida ulanib bo'lmadi. Brauzer ochilmoqda...", Toast.LENGTH_LONG).show()
+                                            AppUpdater.openInBrowser(context, update.downloadUrl)
+                                        }
+                                    }
+                                }
+                            ) {
+                                Text("Ilova ichida")
                             }
                         }
-                    ) {
-                        Text("Yangilash")
                     }
                 }
             },
@@ -319,6 +336,69 @@ fun MainSettingsScreen(
                         Icon(Icons.Default.Mic, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Ovozli Yordamchini Ochish")
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Yoki yozma buyruq berib sinab ko'ring:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = testCommandText,
+                            onValueChange = { testCommandText = it },
+                            placeholder = { Text("Masalan: soat necha, fonarni yoq...") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (testCommandText.isNotBlank()) {
+                                    val cmd = testCommandText.trim()
+                                    val nativeCmd = uz.voiceassistant.command.CommandParser.parse(cmd)
+                                    val actionExecutor = uz.voiceassistant.command.NativeActionExecutor(context)
+                                    if (nativeCmd !is uz.voiceassistant.command.NativeCommand.Unknown) {
+                                        val res = actionExecutor.execute(nativeCmd)
+                                        testCommandResult = res
+                                    } else {
+                                        if (ScreenAgentService.isEnabled()) {
+                                            testCommandResult = "Ekran boshqaruvchisi ishga tushirildi: $cmd"
+                                            ScreenAgentService.executeTask(context, cmd)
+                                        } else {
+                                            testCommandResult = "Maxsus imkoniyatlar (Accessibility) yoqilmagan. Quyidan yoqing."
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = testCommandText.isNotBlank(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Bajarish")
+                        }
+                    }
+                    if (testCommandResult.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Natija: $testCommandResult",
+                                modifier = Modifier.padding(10.dp),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
             }

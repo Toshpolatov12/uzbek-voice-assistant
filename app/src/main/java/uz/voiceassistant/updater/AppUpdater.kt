@@ -30,14 +30,22 @@ object AppUpdater {
         "https://api.github.com/repos/Toshpolatov12/uzbek-voice-assistant/releases/latest"
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .followRedirects(true)
+        .followSslRedirects(true)
         .build()
+
+    private const val USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
     suspend fun checkForUpdate(currentVersion: String): Result<UpdateInfo> = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(GITHUB_LATEST_RELEASE_URL)
             .addHeader("Accept", "application/vnd.github.v3+json")
+            .addHeader("User-Agent", USER_AGENT)
             .build()
 
         try {
@@ -108,7 +116,11 @@ object AppUpdater {
         downloadUrl: String,
         onProgress: (Float) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(downloadUrl).build()
+        val request = Request.Builder()
+            .url(downloadUrl)
+            .addHeader("User-Agent", USER_AGENT)
+            .addHeader("Accept", "*/*")
+            .build()
 
         try {
             val response = httpClient.newCall(request).execute()
@@ -178,5 +190,16 @@ object AppUpdater {
         }
 
         context.startActivity(installIntent)
+    }
+
+    fun openInBrowser(context: Context, downloadUrl: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Cannot open browser", e)
+        }
     }
 }

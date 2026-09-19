@@ -35,6 +35,27 @@ class WakeWordService : Service() {
         const val ACTION_START = "uz.voiceassistant.action.START_WAKEWORD"
         const val ACTION_STOP = "uz.voiceassistant.action.STOP_WAKEWORD"
 
+        private var instance: WakeWordService? = null
+        private var isPaused = false
+
+        fun pause() {
+            instance?.let { s ->
+                isPaused = true
+                s.detector?.stop()
+                Log.d("WakeWordService", "Wake word microphone paused for speech recognition")
+            }
+        }
+
+        fun resume() {
+            instance?.let { s ->
+                if (isPaused) {
+                    isPaused = false
+                    s.detector?.start()
+                    Log.d("WakeWordService", "Wake word microphone resumed")
+                }
+            }
+        }
+
         fun start(context: Context) {
             val intent = Intent(context, WakeWordService::class.java).apply {
                 action = ACTION_START
@@ -56,6 +77,7 @@ class WakeWordService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         initDetector()
     }
 
@@ -119,6 +141,7 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         detector?.stop()
         detector?.release()
         detector = null
