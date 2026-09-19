@@ -60,6 +60,7 @@ class UniversalAiClient(
             ALLOWED ACTIONS:
             - "tap": Tap on a specific UI element or coordinate. Provide "target_bounds": [x1, y1, x2, y2].
             - "type": Input text into the currently focused or targeted editable field. Provide "text": "value to type" and optionally "target_bounds".
+            - "open_app": Open an application directly by name. Provide "text": "appName" (e.g. "telegram", "youtube", "whatsapp").
             - "scroll": Scroll the screen (down or up). "text": "down" or "up".
             - "back": Navigate back.
             - "home": Go to home screen.
@@ -71,7 +72,7 @@ class UniversalAiClient(
             OUTPUT FORMAT:
             You MUST respond with valid raw JSON only (no markdown quotes, no explanations outside json):
             {
-              "action": "tap" | "type" | "scroll" | "back" | "home" | "done",
+              "action": "tap" | "type" | "open_app" | "scroll" | "back" | "home" | "done",
               "target_bounds": [x1, y1, x2, y2] | null,
               "text": "..." | null,
               "reasoning_for_user": "Short explanation in Uzbek describing this step to the user",
@@ -286,5 +287,87 @@ class UniversalAiClient(
             reasoningForUser = reasoning,
             isSensitive = isSensitive
         )
+    }
+
+    suspend fun transcribeAudio(
+        audioBytes: ByteArray,
+        mimeType: String = "audio/mp4"
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val apiKey = apiKeyProvider().trim()
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(Exception("API Kalit kiritilmagan."))
+        }
+
+        val primaryModel = modelProvider().trim().ifBlank { "gemini-2.5-flash" }
+        val modelsToTry = listOf(primaryModel, "gemini-2.5-flash", "gemini-1.5-flash").distinct()
+
+        val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
+
+        val partsArray = JSONArray().apply {
+            put(JSONObject().apply {
+                put("text", "Ushbu audio yozuvdagi inson aytgan gapni o'zbek tilida aniqlab, faqat aytilgan matnni qaytar (boshqa hech qanday so'z yoki belgilarsiz):")
+            })
+            put(JSONObject().apply {
+                put("inline_data", JSONObject().apply {
+                    put("mime_type", mimeType)
+                    put("data", base64Audio)
+                })
+            })
+        }
+
+        val contentsArray = JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "user")
+                put("parts", partsArray)
+            })
+        }
+
+        val requestBodyJson = JSONObject().apply {
+            put("contents", contentsArray)
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.0)
+            })
+        }
+
+        var lastError: Exception? = null
+
+        for (m in modelsToTry) {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$m:generateContent?key=$apiKey"
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBodyJson.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            try {
+                val response = httpClient.newCall(request).execute()
+                val responseBody = response.body?.string().orEmpty()
+
+                if (response.isSuccessful) {
+                    val jsonResponse = JSONObject(responseBody)
+                    val candidates = jsonResponse.optJSONArray("candidates")
+                    val firstCandidate = candidates?.optJSONObject(0)
+                    val content = firstCandidate?.optJSONObject("content")
+                    val parts = content?.optJSONArray("parts")
+                    var rawText = parts?.optJSONObject(0)?.optString("text").orEmpty().trim()
+
+                    if (rawText.startsWith("\"") && rawText.endsWith("\"") && rawText.length >= 2) {
+                        rawText = rawText.substring(1, rawText.length - 1).trim()
+                    }
+
+                    if (rawText.isNotBlank()) {
+                        return@withContext Result.success(rawText)
+                    }
+                } else {
+                    lastError = Exception("Ovozni aniqlashda xatolik (${response.code}): $responseBody")
+                    if (response.code != 404) {
+                        break // Non-404 error (e.g. auth or quota) - don't spam other models
+                    }
+                }
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+
+        Result.failure(lastError ?: Exception("Ovoz aniqlanmadi."))
     }
 }

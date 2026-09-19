@@ -32,6 +32,7 @@ import uz.voiceassistant.data.AiProvider
 import uz.voiceassistant.speech.SpeechManager
 import uz.voiceassistant.speech.TtsManager
 import java.io.ByteArrayOutputStream
+import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 
@@ -40,6 +41,7 @@ class ScreenAgentService : AccessibilityService() {
     private val tag = "ScreenAgentService"
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private var agentJob: Job? = null
+    private var hudOverlay: ScreenAgentHud? = null
 
     private lateinit var ttsManager: TtsManager
     private lateinit var aiClient: UniversalAiClient
@@ -75,6 +77,10 @@ class ScreenAgentService : AccessibilityService() {
         ttsManager = TtsManager(this)
         ttsManager.setFallbackLanguage(app.settingsManager.fallbackLanguage)
 
+        hudOverlay = ScreenAgentHud(this) {
+            cancelAgentTask()
+        }
+
         aiClient = UniversalAiClient(
             providerProvider = { app.settingsManager.aiProvider },
             apiKeyProvider = { app.settingsManager.apiKey },
@@ -90,14 +96,18 @@ class ScreenAgentService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
     override fun onInterrupt() {
         agentJob?.cancel()
+        hudOverlay?.dismiss()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         instance = null
         agentJob?.cancel()
+        hudOverlay?.dismiss()
+        hudOverlay = null
         ttsManager.shutdown()
     }
 
@@ -108,9 +118,62 @@ class ScreenAgentService : AccessibilityService() {
         }
     }
 
+    fun cancelAgentTask() {
+        agentJob?.cancel()
+        hudOverlay?.dismiss()
+    }
+
+    private fun openAppByName(appName: String): Boolean {
+        return try {
+            val pm = packageManager
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val apps = pm.queryIntentActivities(intent, 0)
+            val q = appName.lowercase(Locale.ROOT)
+            val match = apps.firstOrNull {
+                it.loadLabel(pm).toString().lowercase(Locale.ROOT).contains(q) ||
+                        it.activityInfo.packageName.lowercase(Locale.ROOT).contains(q)
+            }
+            if (match != null) {
+                val launchIntent = pm.getLaunchIntentForPackage(match.activityInfo.packageName)
+                if (launchIntent != null) {
+                    launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    startActivity(launchIntent)
+                    true
+                } else false
+            } else false
+        } catch (e: Exception) {
+            Log.e(tag, "Error opening app: $appName", e)
+            false
+        }
+    }
+
+    private fun extractAppToLaunch(command: String): String? {
+        val clean = command.lowercase(Locale.ROOT)
+        val candidates = listOf(
+            "telegram", "whatsapp", "instagram", "youtube", "tiktok", "facebook",
+            "galereya", "gallery", "kamera", "camera", "sozlamalar", "settings",
+            "chrome", "brauzer", "kontaktlar", "contacts", "telefon", "phone"
+        )
+        for (app in candidates) {
+            if (clean.contains(app)) {
+                return app
+            }
+        }
+        return null
+    }
+
     private suspend fun runAgentLoop(userCommand: String) {
-        ttsManager.speak("Ekranni ko'rib vazifani bajarishni boshlayapman: $userCommand")
-        delay(1500)
+        hudOverlay?.show("Vazifa boshlanmoqda...")
+
+        // Fast app pre-launch: if the user specifies an app, launch it directly via Intent!
+        val targetApp = extractAppToLaunch(userCommand)
+        if (targetApp != null) {
+            hudOverlay?.updateText("$targetApp ilovasi ochilmoqda...")
+            openAppByName(targetApp)
+            delay(1200) // Wait for app window to open
+        }
 
         val maxSteps = 15
         var currentStep = 1
@@ -121,7 +184,7 @@ class ScreenAgentService : AccessibilityService() {
         while (currentStep <= maxSteps) {
             Log.i(tag, "Agent Step $currentStep of $maxSteps")
 
-            // 1. Capture screen hierarchy and optional screenshot
+            // 1. Capture screen hierarchy and optimized screenshot
             val interactiveNodes = collectInteractiveNodes()
             val nodesJson = buildCompactNodeTreeJson(interactiveNodes)
             val screenshotBytes = captureScreenshotJpeg()
@@ -138,29 +201,34 @@ class ScreenAgentService : AccessibilityService() {
             if (decisionResult.isFailure) {
                 val errorMsg = decisionResult.exceptionOrNull()?.message ?: "Xatolik yuz berdi"
                 Log.e(tag, "AI call failed: $errorMsg")
-                ttsManager.speak("Kechirasiz, sun'iy intellekt bilan bog'lanishda xatolik yuz berdi: $errorMsg")
+                hudOverlay?.updateText("AI bilan bog'lanishda xatolik", isError = true)
+                delay(2000)
+                hudOverlay?.dismiss()
                 break
             }
 
             val stepAction = decisionResult.getOrThrow()
             Log.i(tag, "Next Action: ${stepAction.action}, Reasoning: ${stepAction.reasoningForUser}")
 
-            // 3. Spoken reasoning in Uzbek
-            ttsManager.speak(stepAction.reasoningForUser)
-            delay(1000)
+            // 3. Display live reasoning on HUD (No robotic voice)
+            hudOverlay?.updateText(stepAction.reasoningForUser)
 
             // 4. Check for sensitive confirmation requirement
             if (isSensitiveAction(stepAction)) {
                 val confirmed = requestSpokenConfirmation()
                 if (!confirmed) {
-                    ttsManager.speak("Xavfsizlik talabiga binoan amal bekor qilindi.")
+                    hudOverlay?.updateText("Amal bekor qilindi.", isError = true)
+                    delay(1500)
+                    hudOverlay?.dismiss()
                     break
                 }
             }
 
             // 5. Complete check
             if (stepAction.action.equals("done", ignoreCase = true)) {
-                ttsManager.speak("Vazifa muvaffaqiyatli bajarildi!")
+                hudOverlay?.updateText("Vazifa bajarildi! ✅", isDone = true)
+                delay(2000)
+                hudOverlay?.dismiss()
                 break
             }
 
@@ -170,12 +238,14 @@ class ScreenAgentService : AccessibilityService() {
                 Log.w(tag, "Failed to execute action: ${stepAction.action}")
             }
 
-            delay(2000) // Allow UI transition to settle
+            delay(600) // Fast settle delay
             currentStep++
         }
 
         if (currentStep > maxSteps) {
-            ttsManager.speak("Vazifa juda ko'p qadamdan iborat bo'lgani uchun to'xtatildi.")
+            hudOverlay?.updateText("Vazifa yakunlandi.", isDone = true)
+            delay(1500)
+            hudOverlay?.dismiss()
         }
     }
 
@@ -247,6 +317,11 @@ class ScreenAgentService : AccessibilityService() {
             }
             "home" -> {
                 performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+            "open_app" -> {
+                val appName = action.text.orEmpty()
+                hudOverlay?.updateText("$appName ochilmoqda...")
+                openAppByName(appName)
             }
             else -> false
         }
@@ -406,9 +481,20 @@ class ScreenAgentService : AccessibilityService() {
                             if (bitmap != null) {
                                 val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                                 bitmap.recycle()
+
+                                val maxDim = 900
+                                val scale = minOf(1.0f, maxDim.toFloat() / maxOf(copy.width, copy.height))
+                                val scaledBitmap = if (scale < 1.0f) {
+                                    val newW = (copy.width * scale).toInt()
+                                    val newH = (copy.height * scale).toInt()
+                                    Bitmap.createScaledBitmap(copy, newW, newH, true).also { copy.recycle() }
+                                } else {
+                                    copy
+                                }
+
                                 val stream = ByteArrayOutputStream()
-                                copy.compress(Bitmap.CompressFormat.JPEG, 75, stream)
-                                copy.recycle()
+                                scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 55, stream)
+                                scaledBitmap.recycle()
                                 if (continuation.isActive) continuation.resume(stream.toByteArray())
                             } else {
                                 if (continuation.isActive) continuation.resume(null)
