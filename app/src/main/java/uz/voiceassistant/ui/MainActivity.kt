@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -213,18 +214,43 @@ fun MainSettingsScreen(
         AlertDialog(
             onDismissRequest = { if (!isDownloadingUpdate) showUpdateDialog = false },
             icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Yangi versiya mavjud: v${update.versionName}") },
+            title = {
+                Text(
+                    "Yangi versiya mavjud: v${update.versionName}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
-                Column {
-                    Text("Ilovaga yangi imkoniyatlar va tuzatishlar kiritildi:")
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        "Ilovaga yangi imkoniyatlar kiritildi:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(update.releaseNotes, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        update.releaseNotes
+                            .replace("###", "")
+                            .replace("**", "")
+                            .trim(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     if (isDownloadingUpdate) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Yuklanmoqda: ${(downloadProgress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            "Yuklanmoqda: ${(downloadProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall
+                        )
                         Spacer(modifier = Modifier.height(6.dp))
                         LinearProgressIndicator(
-                            progress = downloadProgress,
+                            progress = { downloadProgress },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -232,43 +258,52 @@ fun MainSettingsScreen(
             },
             confirmButton = {
                 if (!isDownloadingUpdate) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Row {
-                            OutlinedButton(
-                                onClick = {
-                                    AppUpdater.openInBrowser(context, update.downloadUrl)
-                                }
-                            ) {
-                                Text("Brauzerda yuklash")
-                            }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Button(
+                            onClick = {
+                                AppUpdater.openInBrowser(context, update.downloadUrl)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    isDownloadingUpdate = true
-                                    scope.launch {
-                                        AppUpdater.downloadAndInstall(context, update.downloadUrl) { progress ->
-                                            downloadProgress = progress
-                                        }.onFailure { e ->
-                                            isDownloadingUpdate = false
-                                            Toast.makeText(context, "Ilova ichida ulanib bo'lmadi. Brauzer ochilmoqda...", Toast.LENGTH_LONG).show()
-                                            AppUpdater.openInBrowser(context, update.downloadUrl)
-                                        }
+                            Text("Brauzerda yuklab olish")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isDownloadingUpdate = true
+                                scope.launch {
+                                    AppUpdater.downloadAndInstall(context, update.downloadUrl) { progress ->
+                                        downloadProgress = progress
+                                    }.onFailure { _ ->
+                                        isDownloadingUpdate = false
+                                        Toast.makeText(context, "Brauzer orqali yuklanmoqda...", Toast.LENGTH_SHORT).show()
+                                        AppUpdater.openInBrowser(context, update.downloadUrl)
                                     }
                                 }
-                            ) {
-                                Text("Ilova ichida")
-                            }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Ilova ichida yuklash")
+                        }
+
+                        TextButton(
+                            onClick = { showUpdateDialog = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Keyinroq")
                         }
                     }
                 }
             },
-            dismissButton = {
-                if (!isDownloadingUpdate) {
-                    TextButton(onClick = { showUpdateDialog = false }) {
-                        Text("Keyinroq")
-                    }
-                }
-            }
+            dismissButton = null
         )
     }
 
