@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 class GeminiVisionClient(
     private val apiKeyProvider: () -> String,
-    private val modelProvider: () -> String = { "gemini-2.5-flash" }
+    private val modelProvider: () -> String = { "gemini-3.5-flash" }
 ) {
     private val tag = "GeminiVisionClient"
 
@@ -38,7 +38,7 @@ class GeminiVisionClient(
             return@withContext Result.failure(IllegalStateException("Gemini API kaliti kiritilmagan. Ilova sozlamalaridan kalitni kiriting."))
         }
 
-        val model = modelProvider().trim().ifBlank { "gemini-2.5-flash" }
+        val model = modelProvider().trim().ifBlank { "gemini-3.5-flash" }
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
 
         val systemPrompt = """

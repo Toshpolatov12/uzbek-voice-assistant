@@ -35,7 +35,7 @@ class SettingsManager(context: Context) {
         private const val KEY_CONFIRM_SENSITIVE = "confirm_sensitive"
 
         const val DEFAULT_FALLBACK_LANG = "ru-RU"
-        const val DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+        const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
     }
 
     var geminiApiKey: String
